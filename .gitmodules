@@ -1,0 +1,3 @@
+[submodule "phillip"]
+	path = phillip
+	url = https://kazeto@github.com/kazeto/phillip.git
