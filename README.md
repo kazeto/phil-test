@@ -23,15 +23,23 @@ Before using Phil-Test, the following softwares / libraries should be installed.
 
     $ git clone https://github.com/kazeto/phil-test.git
 
-2. Get and compile Google Test by executing following command on Phil-Test's directory:
+2. Get and compile Google Test:
 
     $ make configure
 
-3. Compile a binary of Phil-Test by executing following command on Phil-Test's directory:
+3. Get a distribution of Phillip from github and compile it as a library:
+
+    $ git clone -b dev https://github.com/kazeto/phillip.git
+    $ cd phillip
+    $ python tools/configure.py
+    $ make lib
+    $ cd ..
+    
+4. Compile a binary of Phil-Test:
 
     $ make
 
-4. Let's start!
+5. Let's start!
 
     $ bin/phil-test
 
