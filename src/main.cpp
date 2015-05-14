@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <phillip.h>
+
 
 int main(int argc, char **argv)
 {
