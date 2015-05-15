@@ -1,8 +1,5 @@
 #include <list>
-#include <gtest/gtest.h>
-#include <phillip.h>
-#include <binary.h>
-
+#include "./test.h"
 
 namespace phtest
 {
@@ -10,7 +7,7 @@ namespace phtest
 using namespace phil;
 
 
-TEST(UtilityClasses, StringHash)
+TEST(UtilityTest, StringHash)
 {
     string_hash_t x("x"), X("X"), xh("*x");
     string_hash_t u(string_hash_t::get_unknown_hash());
@@ -24,7 +21,7 @@ TEST(UtilityClasses, StringHash)
 }
 
 
-TEST(UtilityClasses, Literal)
+TEST(UtilityTest, Literal)
 {
     literal_t p("p", "x", "y", true);
     literal_t np("p", "x", "y", false);
@@ -39,37 +36,84 @@ TEST(UtilityClasses, Literal)
 }
 
 
-TEST(CompileKB, SetUp)
+TEST(CompileKBTest, BasicDistance)
 {
-    kb::knowledge_base_t::setup("compiled/kb", 4.0f, 1, false);
-    kb::kb()->set_distance_provider("basic");
-    kb::kb()->set_category_table("null");
+    const std::string NAME("compiled/kb");
+    setup_kb(NAME, "basic", "null");
 
     EXPECT_EQ(4.0f, kb::knowledge_base_t::get_max_distance());
-    EXPECT_EQ("test-kb", kb::kb()->filename());
+    EXPECT_EQ(NAME, kb::kb()->filename());
+    ASSERT_TRUE(kb::kb()->is_writable());
+    
+    int n_imp = insert_implications(
+        "(=> (dog-n x) (animal-n x))"
+        "(=> (cat-n x) (animal-n x))"
+        "(=> (^ (shot-v *e1) (dobj *e1 x)) (^ (die-v *e2) (nsubj *e2 x)))");
+    int n_inc = insert_inconsistencies(
+        "(xor (dog-n x) (cat-n x))");
+    int n_uni = insert_unification_postponements(
+        "(unipp (nsubj * .))"
+        "(unipp (dobj * .))"
+        "(unipp (iobj * .))");
+
+    EXPECT_EQ(3, n_imp);
+    EXPECT_EQ(1, n_inc);
+    EXPECT_EQ(3, n_uni);
+
+    kb::kb()->finalize();
+    kb::kb()->prepare_query();
+
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("dog-n/1"));
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("animal-n/1"));
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("shot-v/1"));
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("die-v/1"));
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("nsubj/2"));
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("dobj/2"));
+
+    EXPECT_EQ(1.0f, kb::kb()->get_distance(0));
+    EXPECT_EQ(-1.0f, kb::kb()->get_distance("dog-n/1", "cat-n/1"));
+    EXPECT_EQ(1.0f, kb::kb()->get_distance("dog-n/1", "animal-n/1"));
+    EXPECT_EQ(1.0f, kb::kb()->get_distance("dog-n/1", "animal-n/1"));
+
+    EXPECT_TRUE(kb::kb()->find_unification_postponement("nsubj/2") != NULL);
+    EXPECT_TRUE(kb::kb()->find_unification_postponement("dobj/2") != NULL);
+    EXPECT_TRUE(kb::kb()->find_unification_postponement("iobj/2") != NULL);
 }
 
 
-TEST(CompileKB, Compile)
+TEST(CompileKBTest, CostBasedDistance)
 {
-    std::string imp_str =
-        "(=> (p1 x) (p2 x))"
-        "(=> (p4 x) (^ (p2 *x) (p3 *x)))";
-    std::list<lf::logical_function_t> imp_lf;
-
-    lf::parse(imp_str, &imp_lf);
-    kb::kb()->prepare_compile();
+    const std::string NAME("compiled/kb");
+    setup_kb(NAME, "cost", "null");
     ASSERT_TRUE(kb::kb()->is_writable());
+    
+    int n_imp = insert_implications(
+        "(=> (dog-n x) (animal-n x) :1.2)"
+        "(=> (poodle-n x) (dog-n x) :2.0)"
+        "(=> (cat-n x) (animal-n x) :1.2)");
+    int n_inc = insert_inconsistencies(
+        "(xor (dog-n x) (cat-n x))");
 
-    int n(0);
-    for (auto imp : imp_lf)
-    {
-        std::string name = format("imp_%d", n++);
-        kb::kb()->insert_implication(imp, name);
-    }
-    EXPECT_EQ(imp_lf.size(), kb::kb()->num_of_axioms());
+    EXPECT_EQ(3, n_imp);
+    EXPECT_EQ(1, n_inc);
 
     kb::kb()->finalize();
+    kb::kb()->prepare_query();
+
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("dog-n/1"));
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("cat-n/1"));
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("poodle-n/1"));
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("animal-n/1"));
+
+    EXPECT_EQ(1.2f, kb::kb()->get_distance(0));
+    EXPECT_EQ(2.0f, kb::kb()->get_distance(1));
+    EXPECT_EQ(1.2f, kb::kb()->get_distance(2));
+    
+    EXPECT_EQ(-1.0f, kb::kb()->get_distance("dog-n/1", "cat-n/1"));
+    EXPECT_EQ(1.2f, kb::kb()->get_distance("dog-n/1", "animal-n/1"));
+    EXPECT_EQ(1.2f, kb::kb()->get_distance("cat-n/1", "animal-n/1"));
+    EXPECT_EQ(2.0f, kb::kb()->get_distance("dog-n/1", "poodle-n/1"));
+    EXPECT_EQ(3.2f, kb::kb()->get_distance("poodle-n/1", "animal-n/1"));
 }
 
 
@@ -84,18 +128,39 @@ protected:
             set_verbose(NOT_VERBOSE);
         }
 
-    void set_input(const std::string &name, const std::string &obs, const std::string &req)
+    void setup_phillip(
+        const std::string &key_lhs,
+        const std::string &key_ilp,
+        const std::string &key_sol)
         {
-            std::list<lf::logical_function_t> obs_lf, req_lf;
-            lf::parse(obs, &obs_lf);
-            lf::parse(req, &req_lf);
+            set_lhs_enumerator(
+                bin::lhs_enumerator_library_t::instance()
+                ->generate(key_lhs, this));
+            set_ilp_convertor(
+                bin::ilp_converter_library_t::instance()
+                ->generate(key_ilp, this));
+            set_ilp_solver(
+                bin::ilp_solver_library_t::instance()
+                ->generate(key_sol, this));
+            kb::kb()->prepare_query();
+        }
 
+    void set_input(const std::string &name, const std::string &input_str)
+        {
+            std::list<lf::logical_function_t> input_lf;
+            lf::parse(input_str, &input_lf);
+            
             lf::input_t input;
             input.name = name;
-            input.obs = obs_lf.front();
-            if (not req_lf.empty())
-                input.req = req_lf.front();
-
+            
+            for (auto func : input_lf)
+            {
+                if (func.is_operator(lf::OPR_AND))
+                    input.obs = func;
+                else if (func.is_operator(lf::OPR_REQUIREMENT))
+                    input.req = func;
+            }
+            
             phillip_main_t::set_input(input);
         }
 };
@@ -103,13 +168,20 @@ protected:
 
 TEST_F(PhillipTest, Test1)
 {
-    set_lhs_enumerator(bin::lhs_enumerator_library_t::instance()->generate("a*", this));
-    set_ilp_convertor(bin::ilp_converter_library_t::instance()->generate("weighted", this));
-    set_ilp_solver(bin::ilp_solver_library_t::instance()->generate("gurobi", this));
-    set_input("Test1", "(^ (p1 x) (p2 y))", "");
+    setup_kb("compiled/kb", "basic", "null");
+    insert_axioms(
+        "(=> (^ (kill-v *e1) (dobj *e1 x)) (^ (die-v *e2) (nsubj *e2 x)))"
+        "(=> (^ (hate-v *e1) (nsubj *e1 x) (dobj *e1 y))"
+        "    (^ (kill-v *e2) (nsubj *e2 x) (dobj *e2 y)))");
+    
+    setup_phillip("a*", "weighted", "gurobi");
+    set_input(
+        "Test1",
+        "(^ (hate-v E1) (nsubj E1 John) (dobj E1 Tom)"
+        "   (die-v E2) (nsubj E2 Tom))");
     
     ASSERT_TRUE(check_validity());
-    ASSERT_EQ(2, get_input()->obs.branches().size());
+    ASSERT_EQ(5, get_input()->obs.branches().size());
     
     pg::proof_graph_t *graph = new pg::proof_graph_t(this, "Test1");
     delete graph;

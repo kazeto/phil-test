@@ -11,7 +11,7 @@ GTEST_SRC = $(GTEST_DIR)/src/gtest-all.cc
 GTEST_OBJ = $(GTEST_DIR)/src/gtest-all.o
 GTEST_LIB = $(GTEST_DIR)/build/libgtest.a
 
-OPTS = -O2 -std=c++11
+OPTS = -O2 -std=c++11 -g
 IDFLAGS = -I phillip/src
 LDFLAGS = -L phillip/lib -lphil
 
