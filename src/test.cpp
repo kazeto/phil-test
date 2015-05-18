@@ -117,6 +117,51 @@ TEST(CompileKBTest, CostBasedDistance)
 }
 
 
+TEST(CompileKBTest, BasicCategoryTable)
+{
+    const std::string NAME("compiled/kb");
+    setup_kb(NAME, "basic", "basic");
+
+    EXPECT_EQ(4.0f, kb::knowledge_base_t::get_max_distance());
+    EXPECT_EQ(NAME, kb::kb()->filename());
+    ASSERT_TRUE(kb::kb()->is_writable());
+    
+    int n_imp = insert_implications(
+        "(=> (dog-n x) (animal-n x))"
+        "(=> (poodle-n x) (dog-n x))"
+        "(=> (cat-n x) (animal-n x))"
+        "(=> (dog-n x) (^ (have-v e) (nsubj e x) (dobj e y) (tail-n y)))");
+
+    EXPECT_EQ(4, n_imp);
+
+    kb::kb()->finalize();
+    kb::kb()->prepare_query();
+
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("dog-n/1"));
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("animal-n/1"));
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("poodle-n/1"));
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("cat-n/1"));
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("tail-n/1"));
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("nsubj/2"));
+    EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("dobj/2"));
+
+    EXPECT_TRUE(kb::kb()->do_target_on_category_table("dog-n/1"));
+    EXPECT_TRUE(kb::kb()->do_target_on_category_table("animal-n/1"));
+    EXPECT_TRUE(kb::kb()->do_target_on_category_table("poodle-n/1"));
+    EXPECT_TRUE(kb::kb()->do_target_on_category_table("cat-n/1"));
+    EXPECT_TRUE(kb::kb()->do_target_on_category_table("tail-n/1"));
+    EXPECT_TRUE(kb::kb()->do_target_on_category_table("have-v/1"));
+    EXPECT_FALSE(kb::kb()->do_target_on_category_table("nsubj/2"));
+    EXPECT_FALSE(kb::kb()->do_target_on_category_table("dobj/2"));
+
+    EXPECT_EQ(2.0f, kb::kb()->get_soft_unifying_cost("dog-n/1", "cat-n/1"));
+    EXPECT_EQ(2.0f, kb::kb()->get_soft_unifying_cost("cat-n/1", "dog-n/1"));
+    EXPECT_EQ(1.0f, kb::kb()->get_soft_unifying_cost("dog-n/1", "animal-n/1"));
+    EXPECT_EQ(1.0f, kb::kb()->get_soft_unifying_cost("cat-n/1", "animal-n/1"));
+    EXPECT_EQ(3.0f, kb::kb()->get_soft_unifying_cost("cat-n/1", "poodle-n/1"));
+}
+
+
 /** A fixture class for testing inference with Phillip. */
 class PhillipTest :
         public phillip_main_t,
