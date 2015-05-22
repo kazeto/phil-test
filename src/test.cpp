@@ -7,6 +7,9 @@ namespace phtest
 using namespace phil;
 
 
+const std::string KB_PATH = "compiled/kb";
+
+
 TEST(UtilityTest, StringHash)
 {
     string_hash_t x("x"), X("X"), xh("*x");
@@ -38,11 +41,10 @@ TEST(UtilityTest, Literal)
 
 TEST(CompileKBTest, BasicDistance)
 {
-    const std::string NAME("compiled/kb");
-    setup_kb(NAME, "basic", "null");
+    setup_kb(KB_PATH, "basic", "null", 4.0f);
 
     EXPECT_EQ(4.0f, kb::knowledge_base_t::get_max_distance());
-    EXPECT_EQ(NAME, kb::kb()->filename());
+    EXPECT_EQ(KB_PATH, kb::kb()->filename());
     ASSERT_TRUE(kb::kb()->is_writable());
     
     int n_imp = insert_implications(
@@ -83,8 +85,7 @@ TEST(CompileKBTest, BasicDistance)
 
 TEST(CompileKBTest, CostBasedDistance)
 {
-    const std::string NAME("compiled/kb");
-    setup_kb(NAME, "cost", "null");
+    setup_kb(KB_PATH, "cost", "null", 4.0f);
     ASSERT_TRUE(kb::kb()->is_writable());
     
     int n_imp = insert_implications(
@@ -119,11 +120,7 @@ TEST(CompileKBTest, CostBasedDistance)
 
 TEST(CompileKBTest, BasicCategoryTable)
 {
-    const std::string NAME("compiled/kb");
-    setup_kb(NAME, "basic", "basic");
-
-    EXPECT_EQ(4.0f, kb::knowledge_base_t::get_max_distance());
-    EXPECT_EQ(NAME, kb::kb()->filename());
+    setup_kb(KB_PATH, "basic", "basic", 4.0f);
     ASSERT_TRUE(kb::kb()->is_writable());
     
     int n_imp = insert_implications(
@@ -170,7 +167,9 @@ class PhillipTest :
 protected:
     virtual void SetUp() override
         {
+            string_hash_t::reset_unknown_hash_count();
             set_verbose(NOT_VERBOSE);
+            set_param("max_distance", "4.0");
         }
 
     void setup_phillip(
@@ -189,47 +188,195 @@ protected:
                 ->generate(key_sol, this));
             kb::kb()->prepare_query();
         }
-
-    void set_input(const std::string &name, const std::string &input_str)
-        {
-            std::list<lf::logical_function_t> input_lf;
-            lf::parse(input_str, &input_lf);
-            
-            lf::input_t input;
-            input.name = name;
-            
-            for (auto func : input_lf)
-            {
-                if (func.is_operator(lf::OPR_AND))
-                    input.obs = func;
-                else if (func.is_operator(lf::OPR_REQUIREMENT))
-                    input.req = func;
-            }
-            
-            phillip_main_t::set_input(input);
-        }
 };
 
 
-TEST_F(PhillipTest, Test1)
+TEST_F(PhillipTest, Weighted)
 {
-    setup_kb("compiled/kb", "basic", "null");
-    insert_axioms(
-        "(=> (^ (kill-v *e1) (dobj *e1 x)) (^ (die-v *e2) (nsubj *e2 x)))"
+    setup_kb(KB_PATH, "basic", "null", 4.0f);
+    insert_implications(
+        "(=> (^ (kill-v *e1) (nsubj *e1 u) (dobj *e1 x)) (^ (die-v *e2) (nsubj *e2 x)))"
         "(=> (^ (hate-v *e1) (nsubj *e1 x) (dobj *e1 y))"
         "    (^ (kill-v *e2) (nsubj *e2 x) (dobj *e2 y)))");
+    insert_unification_postponements(
+        "(unipp (nsubj * .))"
+        "(unipp (dobj * .))");
     
     setup_phillip("a*", "weighted", "gurobi");
-    set_input(
+    ASSERT_TRUE(check_validity());
+
+    infer(make_input(
         "Test1",
         "(^ (hate-v E1) (nsubj E1 John) (dobj E1 Tom)"
-        "   (die-v E2) (nsubj E2 Tom))");
+        "   (die-v E2) (nsubj E2 Tom))"));
+
+    const pg::proof_graph_t *graph = get_latent_hypotheses_set();
+    const ilp::ilp_problem_t *prob = get_ilp_problem();
+    const ilp::ilp_solution_t &sol = get_solutions().front();
     
+    ASSERT_EQ(13, graph->nodes().size());
+    ASSERT_EQ(ilp::SOLUTION_OPTIMAL, sol.type());
+
+#define EXPECT_EQ_LIT(idx, lit) EXPECT_EQ(lit, graph->node(idx).literal())
+#define EXPECT_EQ_DEPTH(idx, dep) EXPECT_EQ(dep, graph->node(idx).depth())
+#define EXPECT_NODE_ACTIVE(idx) \
+    EXPECT_TRUE(sol.variable_is_active(prob->find_variable_with_node(idx)))
+#define EXPECT_EDGE_ACTIVE(idx) \
+    EXPECT_TRUE(sol.variable_is_active(prob->find_variable_with_edge(idx)))
+    
+    EXPECT_EQ_LIT(0, literal_t("hate-v", {"E1"}));
+    EXPECT_EQ_LIT(1, literal_t("nsubj", {"E1", "John"}));
+    EXPECT_EQ_LIT(2, literal_t("dobj", {"E1", "Tom"}));
+    EXPECT_EQ_LIT(3, literal_t("die-v", {"E2"}));
+    EXPECT_EQ_LIT(4, literal_t("nsubj", {"E2", "Tom"}));
+    EXPECT_EQ_LIT(5, literal_t("kill-v", {"_u1"}));
+    EXPECT_EQ_LIT(6, literal_t("nsubj", {"_u1", "_u2"}));
+    EXPECT_EQ_LIT(7, literal_t("dobj", {"_u1", "Tom"}));
+    EXPECT_EQ_LIT(8, literal_t("hate-v", {"_u3"}));
+    EXPECT_EQ_LIT(9, literal_t("nsubj", {"_u3", "_u2"}));
+    EXPECT_EQ_LIT(10, literal_t("dobj", {"_u3", "Tom"}));
+    EXPECT_EQ_LIT(11, literal_t("=", {"E1", "_u3"}));
+    EXPECT_EQ_LIT(12, literal_t("=", {"John", "_u2"}));
+    
+    EXPECT_EQ_DEPTH(0, 0);
+    EXPECT_EQ_DEPTH(1, 0);
+    EXPECT_EQ_DEPTH(2, 0);
+    EXPECT_EQ_DEPTH(3, 0);
+    EXPECT_EQ_DEPTH(4, 0);
+    EXPECT_EQ_DEPTH(5, 1);
+    EXPECT_EQ_DEPTH(6, 1);
+    EXPECT_EQ_DEPTH(7, 1);
+    EXPECT_EQ_DEPTH(8, 2);
+    EXPECT_EQ_DEPTH(9, 2);
+    EXPECT_EQ_DEPTH(10, 2);
+    EXPECT_EQ_DEPTH(11, -1);
+    EXPECT_EQ_DEPTH(12, -1);
+
+    EXPECT_NODE_ACTIVE(0);
+    EXPECT_NODE_ACTIVE(1);
+    EXPECT_NODE_ACTIVE(2);
+    EXPECT_NODE_ACTIVE(3);
+    EXPECT_NODE_ACTIVE(4);
+    EXPECT_NODE_ACTIVE(5);
+    EXPECT_NODE_ACTIVE(6);
+    EXPECT_NODE_ACTIVE(7);
+    EXPECT_NODE_ACTIVE(8);
+    EXPECT_NODE_ACTIVE(9);
+    EXPECT_NODE_ACTIVE(10);
+    EXPECT_NODE_ACTIVE(11);
+    EXPECT_NODE_ACTIVE(12);
+
+    EXPECT_TRUE(graph->edge(0).is_chain_edge());
+    EXPECT_TRUE(graph->edge(1).is_chain_edge());
+    EXPECT_TRUE(graph->edge(2).is_unify_edge());
+    EXPECT_TRUE(graph->edge(3).is_unify_edge());
+    EXPECT_TRUE(graph->edge(4).is_unify_edge());
+
+    EXPECT_EDGE_ACTIVE(0);
+    EXPECT_EDGE_ACTIVE(1);
+    EXPECT_EDGE_ACTIVE(2);
+    EXPECT_EDGE_ACTIVE(3);
+    EXPECT_EDGE_ACTIVE(4);
+
+#undef EXPECT_EQ_LIT
+#undef EXPECT_EQ_DEPTH
+#undef EXPECT_NODE_ACTIVE
+#undef EXPECT_EDGE_ACTIVE
+}
+
+
+TEST_F(PhillipTest, Costed)
+{
+    setup_kb(KB_PATH, "basic", "null", 4.0f);
+    insert_implications(
+        "(=> (^ (kill-v *e1) (nsubj *e1 u) (dobj *e1 x)) (^ (die-v *e2) (nsubj *e2 x)))"
+        "(=> (^ (hate-v *e1) (nsubj *e1 x) (dobj *e1 y))"
+        "    (^ (kill-v *e2) (nsubj *e2 x) (dobj *e2 y)))");
+    insert_unification_postponements(
+        "(unipp (nsubj * .))"
+        "(unipp (dobj * .))");
+
+    set_param("cost_provider", "basic(10.0,-50.0,4.0)");
+    setup_phillip("a*", "costed", "gurobi");
     ASSERT_TRUE(check_validity());
-    ASSERT_EQ(5, get_input()->obs.branches().size());
+
+    infer(make_input(
+        "Test1",
+        "(^ (hate-v E1) (nsubj E1 John) (dobj E1 Tom)"
+        "   (die-v E2) (nsubj E2 Tom))"));
+
+    const pg::proof_graph_t *graph = get_latent_hypotheses_set();
+    const ilp::ilp_problem_t *prob = get_ilp_problem();
+    const ilp::ilp_solution_t &sol = get_solutions().front();
     
-    pg::proof_graph_t *graph = new pg::proof_graph_t(this, "Test1");
-    delete graph;
+    ASSERT_EQ(13, graph->nodes().size());
+    ASSERT_EQ(ilp::SOLUTION_OPTIMAL, sol.type());
+
+#define EXPECT_EQ_LIT(idx, lit) EXPECT_EQ(lit, graph->node(idx).literal())
+#define EXPECT_EQ_DEPTH(idx, dep) EXPECT_EQ(dep, graph->node(idx).depth())
+#define EXPECT_NODE_ACTIVE(idx) \
+    EXPECT_TRUE(sol.variable_is_active(prob->find_variable_with_node(idx)))
+#define EXPECT_EDGE_ACTIVE(idx) \
+    EXPECT_TRUE(sol.variable_is_active(prob->find_variable_with_edge(idx)))
+    
+    EXPECT_EQ_LIT(0, literal_t("hate-v", {"E1"}));
+    EXPECT_EQ_LIT(1, literal_t("nsubj", {"E1", "John"}));
+    EXPECT_EQ_LIT(2, literal_t("dobj", {"E1", "Tom"}));
+    EXPECT_EQ_LIT(3, literal_t("die-v", {"E2"}));
+    EXPECT_EQ_LIT(4, literal_t("nsubj", {"E2", "Tom"}));
+    EXPECT_EQ_LIT(5, literal_t("kill-v", {"_u1"}));
+    EXPECT_EQ_LIT(6, literal_t("nsubj", {"_u1", "_u2"}));
+    EXPECT_EQ_LIT(7, literal_t("dobj", {"_u1", "Tom"}));
+    EXPECT_EQ_LIT(8, literal_t("hate-v", {"_u3"}));
+    EXPECT_EQ_LIT(9, literal_t("nsubj", {"_u3", "_u2"}));
+    EXPECT_EQ_LIT(10, literal_t("dobj", {"_u3", "Tom"}));
+    EXPECT_EQ_LIT(11, literal_t("=", {"E1", "_u3"}));
+    EXPECT_EQ_LIT(12, literal_t("=", {"John", "_u2"}));
+    
+    EXPECT_EQ_DEPTH(0, 0);
+    EXPECT_EQ_DEPTH(1, 0);
+    EXPECT_EQ_DEPTH(2, 0);
+    EXPECT_EQ_DEPTH(3, 0);
+    EXPECT_EQ_DEPTH(4, 0);
+    EXPECT_EQ_DEPTH(5, 1);
+    EXPECT_EQ_DEPTH(6, 1);
+    EXPECT_EQ_DEPTH(7, 1);
+    EXPECT_EQ_DEPTH(8, 2);
+    EXPECT_EQ_DEPTH(9, 2);
+    EXPECT_EQ_DEPTH(10, 2);
+    EXPECT_EQ_DEPTH(11, -1);
+    EXPECT_EQ_DEPTH(12, -1);
+
+    EXPECT_NODE_ACTIVE(0);
+    EXPECT_NODE_ACTIVE(1);
+    EXPECT_NODE_ACTIVE(2);
+    EXPECT_NODE_ACTIVE(3);
+    EXPECT_NODE_ACTIVE(4);
+    EXPECT_NODE_ACTIVE(5);
+    EXPECT_NODE_ACTIVE(6);
+    EXPECT_NODE_ACTIVE(7);
+    EXPECT_NODE_ACTIVE(8);
+    EXPECT_NODE_ACTIVE(9);
+    EXPECT_NODE_ACTIVE(10);
+    EXPECT_NODE_ACTIVE(11);
+    EXPECT_NODE_ACTIVE(12);
+
+    EXPECT_TRUE(graph->edge(0).is_chain_edge());
+    EXPECT_TRUE(graph->edge(1).is_chain_edge());
+    EXPECT_TRUE(graph->edge(2).is_unify_edge());
+    EXPECT_TRUE(graph->edge(3).is_unify_edge());
+    EXPECT_TRUE(graph->edge(4).is_unify_edge());
+
+    EXPECT_EDGE_ACTIVE(0);
+    EXPECT_EDGE_ACTIVE(1);
+    EXPECT_EDGE_ACTIVE(2);
+    EXPECT_EDGE_ACTIVE(3);
+    EXPECT_EDGE_ACTIVE(4);
+
+#undef EXPECT_EQ_LIT
+#undef EXPECT_EQ_DEPTH
+#undef EXPECT_NODE_ACTIVE
+#undef EXPECT_EDGE_ACTIVE
 }
 
 
