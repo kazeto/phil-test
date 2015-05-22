@@ -191,6 +191,67 @@ protected:
 };
 
 
+TEST_F(PhillipTest, DepthBasedEnumerator)
+{
+    setup_kb(KB_PATH, "basic", "null", 4.0f);
+    insert_implications(
+        "(=> (dog-n x) (animal-n x))"
+        "(=> (cat-n x) (animal-n x))"
+        "(=> (^ (kill-v *e1) (nsubj *e1 u) (dobj *e1 x)) (^ (die-v *e2) (nsubj *e2 x)))"
+        "(=> (^ (hate-v *e1) (nsubj *e1 x) (dobj *e1 y))"
+        "    (^ (kill-v *e2) (nsubj *e2 x) (dobj *e2 y)))");
+    insert_unification_postponements(
+        "(unipp (nsubj * .))"
+        "(unipp (dobj * .))");
+
+    setup_phillip("depth", "null", "null");
+    ASSERT_TRUE(check_validity());
+
+    infer(make_input(
+        "Test1",
+        "(^ (hate-v E1) (nsubj E1 John) (dobj E1 Tom)"
+        "   (die-v E2) (nsubj E2 Tom) (animal-n A))"));
+
+    const pg::proof_graph_t *graph = get_latent_hypotheses_set();    
+    ASSERT_EQ(16, graph->nodes().size());
+    ASSERT_EQ(7, graph->edges().size());
+
+#define EXPECT_NODE(_idx, _lit, _dep) \
+    EXPECT_EQ(_lit, graph->node(_idx).literal()); \
+    EXPECT_EQ(_dep, graph->node(_idx).depth())
+#define EXPECT_EDGE(_idx, _type, _axiom) \
+    EXPECT_EQ(_type, graph->edge(_idx).type()); \
+    EXPECT_EQ(_axiom, graph->edge(_idx).axiom_id())
+    
+    EXPECT_NODE(0, literal_t("hate-v", {"E1"}), 0);
+    EXPECT_NODE(1, literal_t("nsubj", {"E1", "John"}), 0);
+    EXPECT_NODE(2, literal_t("dobj", {"E1", "Tom"}), 0);
+    EXPECT_NODE(3, literal_t("die-v", {"E2"}), 0);
+    EXPECT_NODE(4, literal_t("nsubj", {"E2", "Tom"}), 0);
+    EXPECT_NODE(5, literal_t("animal-n", {"A"}), 0);
+    EXPECT_NODE(6, literal_t("dog-n", {"A"}), 1);
+    EXPECT_NODE(7, literal_t("cat-n", {"A"}), 1);
+    EXPECT_NODE(8, literal_t("kill-v", {"_u1"}), 1);
+    EXPECT_NODE(9, literal_t("nsubj", {"_u1", "_u2"}), 1);
+    EXPECT_NODE(10, literal_t("dobj", {"_u1", "Tom"}), 1);
+    EXPECT_NODE(11, literal_t("hate-v", {"_u3"}), 2);
+    EXPECT_NODE(12, literal_t("nsubj", {"_u3", "_u2"}), 2);
+    EXPECT_NODE(13, literal_t("dobj", {"_u3", "Tom"}), 2);
+    EXPECT_NODE(14, literal_t("=", {"E1", "_u3"}), -1);
+    EXPECT_NODE(15, literal_t("=", {"John", "_u2"}), -1);
+
+    EXPECT_EDGE(0, pg::EDGE_HYPOTHESIZE, 0);
+    EXPECT_EDGE(1, pg::EDGE_HYPOTHESIZE, 1);
+    EXPECT_EDGE(2, pg::EDGE_HYPOTHESIZE, 2);
+    EXPECT_EDGE(3, pg::EDGE_HYPOTHESIZE, 3);
+    EXPECT_EDGE(4, pg::EDGE_UNIFICATION, -1);
+    EXPECT_EDGE(5, pg::EDGE_UNIFICATION, -1);
+    EXPECT_EDGE(6, pg::EDGE_UNIFICATION, -1);
+
+#undef EXPECT_NODE
+}
+
+
 TEST_F(PhillipTest, Weighted)
 {
     setup_kb(KB_PATH, "basic", "null", 4.0f);
