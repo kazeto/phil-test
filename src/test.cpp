@@ -188,6 +188,58 @@ protected:
                 ->generate(key_sol, this));
             kb::kb()->prepare_query();
         }
+
+    int count_observation_nodes()
+        {
+            int out(0);
+            const pg::proof_graph_t *graph = get_latent_hypotheses_set();
+            for (pg::node_idx_t i = 0; i < graph->nodes().size(); ++i)
+                if (graph->node(i).type() == pg::NODE_OBSERVABLE)
+                    ++out;
+            return out;
+        }
+
+    int count_hypothesis_nodes()
+        {
+            int out(0);
+            const pg::proof_graph_t *graph = get_latent_hypotheses_set();
+            for (pg::node_idx_t i = 0; i < graph->nodes().size(); ++i)
+                if (graph->node(i).type() == pg::NODE_HYPOTHESIS)
+                    if (not graph->node(i).literal().is_equality())
+                        ++out;
+            return out;
+        }
+
+    int count_unification_nodes()
+        {
+            int out(0);
+            const pg::proof_graph_t *graph = get_latent_hypotheses_set();
+            for (pg::node_idx_t i = 0; i < graph->nodes().size(); ++i)
+                if (graph->node(i).type() == pg::NODE_HYPOTHESIS)
+                    if (graph->node(i).is_equality_node())
+                        ++out;
+            return out;
+        }
+
+    int count_chaining_edges()
+        {
+            int out(0);
+            const pg::proof_graph_t *graph = get_latent_hypotheses_set();
+            for (pg::edge_idx_t i = 0; i < graph->edges().size(); ++i)
+                if (graph->edge(i).is_chain_edge())
+                    ++out;
+            return out;
+        }
+    
+    int count_unifying_edges()
+        {
+            int out(0);
+            const pg::proof_graph_t *graph = get_latent_hypotheses_set();
+            for (pg::edge_idx_t i = 0; i < graph->edges().size(); ++i)
+                if (graph->edge(i).is_unify_edge())
+                    ++out;
+            return out;
+        }
 };
 
 
@@ -213,44 +265,19 @@ TEST_F(PhillipTest, DepthBasedEnumerator)
         "(^ (hate-v E1) (nsubj E1 John) (dobj E1 Tom)"
         "   (die-v E2) (nsubj E2 Tom) (animal-n A))"));
 
-    const pg::proof_graph_t *graph = get_latent_hypotheses_set();    
-    ASSERT_EQ(16, graph->nodes().size());
-    ASSERT_EQ(7, graph->edges().size());
+    const pg::proof_graph_t *graph = get_latent_hypotheses_set();
 
-#define EXPECT_NODE(_idx, _lit, _dep) \
-    EXPECT_EQ(_lit, graph->node(_idx).literal()); \
-    EXPECT_EQ(_dep, graph->node(_idx).depth())
-#define EXPECT_EDGE(_idx, _type, _axiom) \
-    EXPECT_EQ(_type, graph->edge(_idx).type()); \
-    EXPECT_EQ(_axiom, graph->edge(_idx).axiom_id())
+    std::ofstream fo("dbg.lhs.xml");
+    graph->print(&fo);
     
-    EXPECT_NODE(0, literal_t("hate-v", {"E1"}), 0);
-    EXPECT_NODE(1, literal_t("nsubj", {"E1", "John"}), 0);
-    EXPECT_NODE(2, literal_t("dobj", {"E1", "Tom"}), 0);
-    EXPECT_NODE(3, literal_t("die-v", {"E2"}), 0);
-    EXPECT_NODE(4, literal_t("nsubj", {"E2", "Tom"}), 0);
-    EXPECT_NODE(5, literal_t("animal-n", {"A"}), 0);
-    EXPECT_NODE(6, literal_t("dog-n", {"A"}), 1);
-    EXPECT_NODE(7, literal_t("cat-n", {"A"}), 1);
-    EXPECT_NODE(8, literal_t("kill-v", {"_u1"}), 1);
-    EXPECT_NODE(9, literal_t("nsubj", {"_u1", "_u2"}), 1);
-    EXPECT_NODE(10, literal_t("dobj", {"_u1", "Tom"}), 1);
-    EXPECT_NODE(11, literal_t("hate-v", {"_u3"}), 2);
-    EXPECT_NODE(12, literal_t("nsubj", {"_u3", "_u2"}), 2);
-    EXPECT_NODE(13, literal_t("dobj", {"_u3", "Tom"}), 2);
-    EXPECT_NODE(14, literal_t("=", {"E1", "_u3"}), -1);
-    EXPECT_NODE(15, literal_t("=", {"John", "_u2"}), -1);
-
-    EXPECT_EDGE(0, pg::EDGE_HYPOTHESIZE, 0);
-    EXPECT_EDGE(1, pg::EDGE_HYPOTHESIZE, 1);
-    EXPECT_EDGE(2, pg::EDGE_HYPOTHESIZE, 2);
-    EXPECT_EDGE(3, pg::EDGE_HYPOTHESIZE, 3);
-    EXPECT_EDGE(4, pg::EDGE_UNIFICATION, -1);
-    EXPECT_EDGE(5, pg::EDGE_UNIFICATION, -1);
-    EXPECT_EDGE(6, pg::EDGE_UNIFICATION, -1);
-
-#undef EXPECT_NODE
-#undef EXPECT_EDGE
+    ASSERT_EQ(16, graph->nodes().size());
+    EXPECT_EQ(6, count_observation_nodes());
+    EXPECT_EQ(8, count_hypothesis_nodes());
+    EXPECT_EQ(2, count_unification_nodes());
+    
+    ASSERT_EQ(7, graph->edges().size());
+    EXPECT_EQ(4, count_chaining_edges());
+    EXPECT_EQ(3, count_unifying_edges());
 }
 
 
@@ -279,37 +306,15 @@ TEST_F(PhillipTest, AStarBasedEnumerator)
     const pg::proof_graph_t *graph = get_latent_hypotheses_set();    
     ASSERT_EQ(14, graph->nodes().size());
     ASSERT_EQ(5, graph->edges().size());
-
-#define EXPECT_NODE(_idx, _lit, _dep) \
-    EXPECT_EQ(_lit, graph->node(_idx).literal()); \
-    EXPECT_EQ(_dep, graph->node(_idx).depth())
-#define EXPECT_EDGE(_idx, _type, _axiom) \
-    EXPECT_EQ(_type, graph->edge(_idx).type()); \
-    EXPECT_EQ(_axiom, graph->edge(_idx).axiom_id())
     
-    EXPECT_NODE(0, literal_t("hate-v", {"E1"}), 0);
-    EXPECT_NODE(1, literal_t("nsubj", {"E1", "John"}), 0);
-    EXPECT_NODE(2, literal_t("dobj", {"E1", "Tom"}), 0);
-    EXPECT_NODE(3, literal_t("die-v", {"E2"}), 0);
-    EXPECT_NODE(4, literal_t("nsubj", {"E2", "Tom"}), 0);
-    EXPECT_NODE(5, literal_t("animal-n", {"A"}), 0);
-    EXPECT_NODE(6, literal_t("kill-v", {"_u1"}), 1);
-    EXPECT_NODE(7, literal_t("nsubj", {"_u1", "_u2"}), 1);
-    EXPECT_NODE(8, literal_t("dobj", {"_u1", "Tom"}), 1);
-    EXPECT_NODE(9, literal_t("hate-v", {"_u3"}), 2);
-    EXPECT_NODE(10, literal_t("nsubj", {"_u3", "_u2"}), 2);
-    EXPECT_NODE(11, literal_t("dobj", {"_u3", "Tom"}), 2);
-    EXPECT_NODE(12, literal_t("=", {"E1", "_u3"}), -1);
-    EXPECT_NODE(13, literal_t("=", {"John", "_u2"}), -1);
-
-    EXPECT_EDGE(0, pg::EDGE_HYPOTHESIZE, 2);
-    EXPECT_EDGE(1, pg::EDGE_HYPOTHESIZE, 3);
-    EXPECT_EDGE(2, pg::EDGE_UNIFICATION, -1);
-    EXPECT_EDGE(3, pg::EDGE_UNIFICATION, -1);
-    EXPECT_EDGE(4, pg::EDGE_UNIFICATION, -1);
-
-#undef EXPECT_NODE
-#undef EXPECT_EDGE
+    ASSERT_EQ(14, graph->nodes().size());
+    EXPECT_EQ(6, count_observation_nodes());
+    EXPECT_EQ(6, count_hypothesis_nodes());
+    EXPECT_EQ(2, count_unification_nodes());
+    
+    ASSERT_EQ(5, graph->edges().size());
+    EXPECT_EQ(2, count_chaining_edges());
+    EXPECT_EQ(3, count_unifying_edges());
 }
 
 

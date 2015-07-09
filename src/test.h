@@ -33,9 +33,11 @@ int insert_implications(const std::string &str)
     lf::parse(str, &funcs);
     for (auto func : funcs)
     {
-        assert(func.is_operator(lf::OPR_IMPLICATION));
+        assert(
+            func.is_operator(lf::OPR_IMPLICATION) or
+            func.is_operator(lf::OPR_PARAPHRASE));
 
-        std::string name = format("imp_%d", n_imp);
+        std::string name = util::format("imp_%d", n_imp);
         kb::kb()->insert_implication(func, name);
         ++n_imp;
     }
