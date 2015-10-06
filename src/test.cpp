@@ -10,6 +10,12 @@ using namespace phil;
 const std::string KB_PATH = "compiled/kb";
 
 
+TEST(Preliminary, Version)
+{
+    ASSERT_EQ("phil.3.16", phillip_main_t::VERSION);
+}
+
+
 TEST(UtilityTest, StringHash)
 {
     string_hash_t x("x"), X("X"), xh("*x");
@@ -41,9 +47,14 @@ TEST(UtilityTest, Literal)
 
 TEST(CompileKBTest, BasicDistance)
 {
-    setup_kb(KB_PATH, "basic", "null", 4.0f);
+    phillip_main_t ph;
+    ph.set_param("distance_provider", "basic");
+    ph.set_param("category_table", "null");
+    ph.set_param("kb_max_distance", "4.0");
+    kb::knowledge_base_t::initialize(KB_PATH, &ph);
+    kb::kb()->prepare_compile();
 
-    EXPECT_EQ(4.0f, kb::knowledge_base_t::get_max_distance());
+    EXPECT_EQ(4.0f, kb::kb()->get_max_distance());
     EXPECT_EQ(KB_PATH, kb::kb()->filename());
     ASSERT_TRUE(kb::kb()->is_writable());
     
@@ -85,7 +96,15 @@ TEST(CompileKBTest, BasicDistance)
 
 TEST(CompileKBTest, CostBasedDistance)
 {
-    setup_kb(KB_PATH, "cost", "null", 4.0f);
+    phillip_main_t ph;
+    ph.set_param("distance_provider", "cost");
+    ph.set_param("category_table", "null");
+    ph.set_param("kb_max_distance", "4.0");
+    kb::knowledge_base_t::initialize(KB_PATH, &ph);
+    kb::kb()->prepare_compile();
+    
+    EXPECT_EQ(4.0f, kb::kb()->get_max_distance());
+    EXPECT_EQ(KB_PATH, kb::kb()->filename());
     ASSERT_TRUE(kb::kb()->is_writable());
     
     int n_imp = insert_implications(
@@ -120,7 +139,13 @@ TEST(CompileKBTest, CostBasedDistance)
 
 TEST(CompileKBTest, BasicCategoryTable)
 {
-    setup_kb(KB_PATH, "basic", "basic", 4.0f);
+    phillip_main_t ph;
+    ph.set_param("distance_provider", "basic");
+    ph.set_param("category_table", "basic");
+    ph.set_param("kb_max_distance", "4.0");
+    kb::knowledge_base_t::initialize(KB_PATH, &ph);
+    kb::kb()->prepare_compile();
+    
     ASSERT_TRUE(kb::kb()->is_writable());
     
     int n_imp = insert_implications(
@@ -142,20 +167,31 @@ TEST(CompileKBTest, BasicCategoryTable)
     EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("nsubj/2"));
     EXPECT_NE(kb::INVALID_AXIOM_ID, kb::kb()->search_arity_id("dobj/2"));
 
-    EXPECT_TRUE(kb::kb()->do_target_on_category_table("dog-n/1"));
-    EXPECT_TRUE(kb::kb()->do_target_on_category_table("animal-n/1"));
-    EXPECT_TRUE(kb::kb()->do_target_on_category_table("poodle-n/1"));
-    EXPECT_TRUE(kb::kb()->do_target_on_category_table("cat-n/1"));
-    EXPECT_TRUE(kb::kb()->do_target_on_category_table("tail-n/1"));
-    EXPECT_TRUE(kb::kb()->do_target_on_category_table("have-v/1"));
-    EXPECT_FALSE(kb::kb()->do_target_on_category_table("nsubj/2"));
-    EXPECT_FALSE(kb::kb()->do_target_on_category_table("dobj/2"));
+    const kb::category_table_t *tab = kb::kb()->category_table();
 
-    EXPECT_EQ(2.0f, kb::kb()->get_soft_unifying_cost("dog-n/1", "cat-n/1"));
-    EXPECT_EQ(2.0f, kb::kb()->get_soft_unifying_cost("cat-n/1", "dog-n/1"));
-    EXPECT_EQ(1.0f, kb::kb()->get_soft_unifying_cost("dog-n/1", "animal-n/1"));
-    EXPECT_EQ(1.0f, kb::kb()->get_soft_unifying_cost("cat-n/1", "animal-n/1"));
-    EXPECT_EQ(3.0f, kb::kb()->get_soft_unifying_cost("cat-n/1", "poodle-n/1"));
+    EXPECT_TRUE(tab->do_target("dog-n/1"));
+    EXPECT_TRUE(tab->do_target("animal-n/1"));
+    EXPECT_TRUE(tab->do_target("poodle-n/1"));
+    EXPECT_TRUE(tab->do_target("cat-n/1"));
+    EXPECT_TRUE(tab->do_target("tail-n/1"));
+    EXPECT_TRUE(tab->do_target("have-v/1"));
+    EXPECT_FALSE(tab->do_target("nsubj/2"));
+    EXPECT_FALSE(tab->do_target("dobj/2"));
+    
+    EXPECT_EQ(2.0f, tab->get("dog-n/1", "cat-n/1"));
+    EXPECT_EQ(2.0f, tab->get("cat-n/1", "dog-n/1"));
+    EXPECT_EQ(1.0f, tab->get("dog-n/1", "animal-n/1"));
+    EXPECT_EQ(1.0f, tab->get("cat-n/1", "animal-n/1"));
+    EXPECT_EQ(3.0f, tab->get("cat-n/1", "poodle-n/1"));
+}
+
+
+namespace os
+{
+const unsigned char lhs = 0x01;
+const unsigned char ilp = 0x02;
+const unsigned char sol = 0x04;
+const unsigned char out = 0x08;
 }
 
 
@@ -172,7 +208,19 @@ protected:
             set_param("max_distance", "4.0");
         }
 
-    void setup_phillip(
+    /** Prepares for compiling KB. */
+    void prepare_compile(
+        const std::string &key_dist,
+        const std::string &key_tab)
+        {
+            set_param("distance_provider", key_dist);
+            set_param("category_table", key_tab);
+            set_param("kb_max_distance", "4.0");
+            kb::knowledge_base_t::initialize(KB_PATH, this);
+            kb::kb()->prepare_compile();
+        }
+
+    void prepare_infer(
         const std::string &key_lhs,
         const std::string &key_ilp,
         const std::string &key_sol)
@@ -189,63 +237,43 @@ protected:
             kb::kb()->prepare_query();
         }
 
-    int count_observation_nodes()
+    void write(const std::string &prefix, unsigned char flags = 0x0f)
         {
-            int out(0);
-            const pg::proof_graph_t *graph = get_latent_hypotheses_set();
-            for (pg::node_idx_t i = 0; i < graph->nodes().size(); ++i)
-                if (graph->node(i).type() == pg::NODE_OBSERVABLE)
-                    ++out;
-            return out;
-        }
-
-    int count_hypothesis_nodes()
-        {
-            int out(0);
-            const pg::proof_graph_t *graph = get_latent_hypotheses_set();
-            for (pg::node_idx_t i = 0; i < graph->nodes().size(); ++i)
-                if (graph->node(i).type() == pg::NODE_HYPOTHESIS)
-                    if (not graph->node(i).literal().is_equality())
-                        ++out;
-            return out;
-        }
-
-    int count_unification_nodes()
-        {
-            int out(0);
-            const pg::proof_graph_t *graph = get_latent_hypotheses_set();
-            for (pg::node_idx_t i = 0; i < graph->nodes().size(); ++i)
-                if (graph->node(i).type() == pg::NODE_HYPOTHESIS)
-                    if (graph->node(i).is_equality_node())
-                        ++out;
-            return out;
-        }
-
-    int count_chaining_edges()
-        {
-            int out(0);
-            const pg::proof_graph_t *graph = get_latent_hypotheses_set();
-            for (pg::edge_idx_t i = 0; i < graph->edges().size(); ++i)
-                if (graph->edge(i).is_chain_edge())
-                    ++out;
-            return out;
-        }
-    
-    int count_unifying_edges()
-        {
-            int out(0);
-            const pg::proof_graph_t *graph = get_latent_hypotheses_set();
-            for (pg::edge_idx_t i = 0; i < graph->edges().size(); ++i)
-                if (graph->edge(i).is_unify_edge())
-                    ++out;
-            return out;
+            if (flags & os::lhs)
+            {
+                std::ofstream fo(prefix + ".lhs.xml");
+                write_header(&fo);
+                get_latent_hypotheses_set()->print(&fo);
+                write_footer(&fo);
+            }
+            if (flags & os::ilp)
+            {
+                std::ofstream fo(prefix + ".ilp.xml");
+                write_header(&fo);
+                get_ilp_problem()->print(&fo);
+                write_footer(&fo);
+            }
+            if (flags & os::sol)
+            {
+                std::ofstream fo(prefix + ".sol.xml");
+                write_header(&fo);
+                get_solutions().front().print(&fo);
+                write_footer(&fo);
+            }
+            if (flags & os::out)
+            {
+                std::ofstream fo(prefix + ".out.xml");
+                write_header(&fo);
+                get_solutions().front().print_graph(&fo);
+                write_footer(&fo);
+            }
         }
 };
 
 
-TEST_F(PhillipTest, DepthBasedEnumerator)
+TEST_F(PhillipTest, DepthBasedEnumerator01)
 {
-    setup_kb(KB_PATH, "basic", "null", 4.0f);
+    prepare_compile("basic", "null");
     insert_implications(
         "(=> (dog-n x) (animal-n x))"
         "(=> (cat-n x) (animal-n x))"
@@ -257,33 +285,31 @@ TEST_F(PhillipTest, DepthBasedEnumerator)
         "(unipp (nsubj * .))"
         "(unipp (dobj * .))");
 
-    setup_phillip("depth", "null", "null");
+    prepare_infer("depth", "null", "null");
     ASSERT_TRUE(check_validity());
 
     infer(make_input(
         "Test1",
         "(^ (hate-v E1) (nsubj E1 John) (dobj E1 Tom)"
         "   (die-v E2) (nsubj E2 Tom) (animal-n A))"));
+    write("log/depth", os::lhs);
 
     const pg::proof_graph_t *graph = get_latent_hypotheses_set();
 
-    std::ofstream fo("dbg.lhs.xml");
-    graph->print(&fo);
+    EXPECT_EQ(16, graph->nodes().size());
+    EXPECT_EQ(6, count_observation_nodes(graph));
+    EXPECT_EQ(8, count_hypothesis_nodes(graph));
+    EXPECT_EQ(2, count_unification_nodes(graph));
     
-    ASSERT_EQ(16, graph->nodes().size());
-    EXPECT_EQ(6, count_observation_nodes());
-    EXPECT_EQ(8, count_hypothesis_nodes());
-    EXPECT_EQ(2, count_unification_nodes());
-    
-    ASSERT_EQ(7, graph->edges().size());
-    EXPECT_EQ(4, count_chaining_edges());
-    EXPECT_EQ(3, count_unifying_edges());
+    EXPECT_EQ(7, graph->edges().size());
+    EXPECT_EQ(4, count_chaining_edges(graph));
+    EXPECT_EQ(3, count_unifying_edges(graph));
 }
 
 
-TEST_F(PhillipTest, AStarBasedEnumerator)
+TEST_F(PhillipTest, AStarBasedEnumerator01)
 {
-    setup_kb(KB_PATH, "basic", "null", 4.0f);
+    prepare_compile("basic", "null");
     insert_implications(
         "(=> (dog-n x) (animal-n x))"
         "(=> (cat-n x) (animal-n x))"
@@ -295,32 +321,31 @@ TEST_F(PhillipTest, AStarBasedEnumerator)
         "(unipp (nsubj * .))"
         "(unipp (dobj * .))");
 
-    setup_phillip("a*", "null", "null");
+    prepare_infer("a*", "null", "null");
     ASSERT_TRUE(check_validity());
 
     infer(make_input(
         "Test1",
         "(^ (hate-v E1) (nsubj E1 John) (dobj E1 Tom)"
         "   (die-v E2) (nsubj E2 Tom) (animal-n A))"));
+    write("log/astar.01", os::lhs);
 
     const pg::proof_graph_t *graph = get_latent_hypotheses_set();    
+
     ASSERT_EQ(14, graph->nodes().size());
-    ASSERT_EQ(5, graph->edges().size());
-    
-    ASSERT_EQ(14, graph->nodes().size());
-    EXPECT_EQ(6, count_observation_nodes());
-    EXPECT_EQ(6, count_hypothesis_nodes());
-    EXPECT_EQ(2, count_unification_nodes());
+    EXPECT_EQ(6, count_observation_nodes(graph));
+    EXPECT_EQ(6, count_hypothesis_nodes(graph));
+    EXPECT_EQ(2, count_unification_nodes(graph));
     
     ASSERT_EQ(5, graph->edges().size());
-    EXPECT_EQ(2, count_chaining_edges());
-    EXPECT_EQ(3, count_unifying_edges());
+    EXPECT_EQ(2, count_chaining_edges(graph));
+    EXPECT_EQ(3, count_unifying_edges(graph));
 }
 
 
-TEST_F(PhillipTest, Weighted)
+TEST_F(PhillipTest, Weighted01)
 {
-    setup_kb(KB_PATH, "basic", "null", 4.0f);
+    prepare_compile("basic", "null");
     insert_implications(
         "(=> (^ (kill-v *e1) (nsubj *e1 u) (dobj *e1 x))"
         "    (^ (die-v *e2) (nsubj *e2 x)))"
@@ -330,92 +355,89 @@ TEST_F(PhillipTest, Weighted)
         "(unipp (nsubj * .))"
         "(unipp (dobj * .))");
     
-    setup_phillip("a*", "weighted", "gurobi");
+    prepare_infer("a*", "weighted", "gurobi");
     ASSERT_TRUE(check_validity());
 
     infer(make_input(
         "Test1",
         "(^ (hate-v E1) (nsubj E1 John) (dobj E1 Tom)"
         "   (die-v E2) (nsubj E2 Tom))"));
+    write("log/weighted.01");
 
     const pg::proof_graph_t *graph = get_latent_hypotheses_set();
     const ilp::ilp_problem_t *prob = get_ilp_problem();
     const ilp::ilp_solution_t &sol = get_solutions().front();
     
-    ASSERT_EQ(13, graph->nodes().size());
     ASSERT_EQ(ilp::SOLUTION_OPTIMAL, sol.type());
-
-#define EXPECT_EQ_LIT(idx, lit) EXPECT_EQ(lit, graph->node(idx).literal())
-#define EXPECT_EQ_DEPTH(idx, dep) EXPECT_EQ(dep, graph->node(idx).depth())
-#define EXPECT_NODE_ACTIVE(idx) \
-    EXPECT_TRUE(sol.variable_is_active(prob->find_variable_with_node(idx)))
-#define EXPECT_EDGE_ACTIVE(idx) \
-    EXPECT_TRUE(sol.variable_is_active(prob->find_variable_with_edge(idx)))
     
-    EXPECT_EQ_LIT(0, literal_t("hate-v", {"E1"}));
-    EXPECT_EQ_LIT(1, literal_t("nsubj", {"E1", "John"}));
-    EXPECT_EQ_LIT(2, literal_t("dobj", {"E1", "Tom"}));
-    EXPECT_EQ_LIT(3, literal_t("die-v", {"E2"}));
-    EXPECT_EQ_LIT(4, literal_t("nsubj", {"E2", "Tom"}));
-    EXPECT_EQ_LIT(5, literal_t("kill-v", {"_u1"}));
-    EXPECT_EQ_LIT(6, literal_t("nsubj", {"_u1", "_u2"}));
-    EXPECT_EQ_LIT(7, literal_t("dobj", {"_u1", "Tom"}));
-    EXPECT_EQ_LIT(8, literal_t("hate-v", {"_u3"}));
-    EXPECT_EQ_LIT(9, literal_t("nsubj", {"_u3", "_u2"}));
-    EXPECT_EQ_LIT(10, literal_t("dobj", {"_u3", "Tom"}));
-    EXPECT_EQ_LIT(11, literal_t("=", {"E1", "_u3"}));
-    EXPECT_EQ_LIT(12, literal_t("=", {"John", "_u2"}));
+    EXPECT_EQ(13, graph->nodes().size());
+    EXPECT_EQ(5, count_observation_nodes(graph));
+    EXPECT_EQ(6, count_hypothesis_nodes(graph));
+    EXPECT_EQ(2, count_unification_nodes(graph));
+
+    EXPECT_EQ(13, count_active_nodes(sol));
+    EXPECT_EQ(5, count_active_observation_nodes(sol));
+    EXPECT_EQ(6, count_active_hypothesis_nodes(sol));
+    EXPECT_EQ(2, count_active_unification_nodes(sol));
+
+    EXPECT_EQ(5, graph->edges().size());
+    EXPECT_EQ(2, count_chaining_edges(graph));
+    EXPECT_EQ(3, count_unifying_edges(graph));
     
-    EXPECT_EQ_DEPTH(0, 0);
-    EXPECT_EQ_DEPTH(1, 0);
-    EXPECT_EQ_DEPTH(2, 0);
-    EXPECT_EQ_DEPTH(3, 0);
-    EXPECT_EQ_DEPTH(4, 0);
-    EXPECT_EQ_DEPTH(5, 1);
-    EXPECT_EQ_DEPTH(6, 1);
-    EXPECT_EQ_DEPTH(7, 1);
-    EXPECT_EQ_DEPTH(8, 2);
-    EXPECT_EQ_DEPTH(9, 2);
-    EXPECT_EQ_DEPTH(10, 2);
-    EXPECT_EQ_DEPTH(11, -1);
-    EXPECT_EQ_DEPTH(12, -1);
-
-    EXPECT_NODE_ACTIVE(0);
-    EXPECT_NODE_ACTIVE(1);
-    EXPECT_NODE_ACTIVE(2);
-    EXPECT_NODE_ACTIVE(3);
-    EXPECT_NODE_ACTIVE(4);
-    EXPECT_NODE_ACTIVE(5);
-    EXPECT_NODE_ACTIVE(6);
-    EXPECT_NODE_ACTIVE(7);
-    EXPECT_NODE_ACTIVE(8);
-    EXPECT_NODE_ACTIVE(9);
-    EXPECT_NODE_ACTIVE(10);
-    EXPECT_NODE_ACTIVE(11);
-    EXPECT_NODE_ACTIVE(12);
-
-    EXPECT_TRUE(graph->edge(0).is_chain_edge());
-    EXPECT_TRUE(graph->edge(1).is_chain_edge());
-    EXPECT_TRUE(graph->edge(2).is_unify_edge());
-    EXPECT_TRUE(graph->edge(3).is_unify_edge());
-    EXPECT_TRUE(graph->edge(4).is_unify_edge());
-
-    EXPECT_EDGE_ACTIVE(0);
-    EXPECT_EDGE_ACTIVE(1);
-    EXPECT_EDGE_ACTIVE(2);
-    EXPECT_EDGE_ACTIVE(3);
-    EXPECT_EDGE_ACTIVE(4);
-
-#undef EXPECT_EQ_LIT
-#undef EXPECT_EQ_DEPTH
-#undef EXPECT_NODE_ACTIVE
-#undef EXPECT_EDGE_ACTIVE
+    EXPECT_EQ(5, count_active_edges(sol));
+    EXPECT_EQ(2, count_active_chaining_edges(sol));
+    EXPECT_EQ(3, count_active_unifying_edges(sol));
 }
 
 
-TEST_F(PhillipTest, Costed)
+TEST_F(PhillipTest, Weighted02)
 {
-    setup_kb(KB_PATH, "basic", "null", 4.0f);
+    prepare_compile("basic", "null");
+    insert_implications(
+        "(=> (dog-n x :1.2) (animal-n x))"
+        "(=> (cat-n x :1.4) (animal-n x))");
+    insert_inconsistencies(
+        "(xor (dog-n x) (cat-n x))");
+    
+    prepare_infer("a*", "weighted", "gurobi");
+    ASSERT_TRUE(check_validity());
+
+    infer(make_input(
+        "Test2",
+        "(^ (animal-n a :10) (cat-n c :20) (dog-n d :20))"));
+    write("log/weighted.02");
+
+    const pg::proof_graph_t *graph = get_latent_hypotheses_set();
+    const ilp::ilp_problem_t *prob = get_ilp_problem();
+    const ilp::ilp_solution_t &sol = get_solutions().front();
+    
+    ASSERT_EQ(ilp::SOLUTION_OPTIMAL, sol.type());
+    
+    EXPECT_EQ(8, graph->nodes().size());
+    EXPECT_EQ(3, count_observation_nodes(graph));
+    EXPECT_EQ(2, count_hypothesis_nodes(graph));
+    EXPECT_EQ(3, count_unification_nodes(graph));
+
+    EXPECT_EQ(5, count_active_nodes(sol));
+    EXPECT_EQ(3, count_active_observation_nodes(sol));
+    EXPECT_EQ(1, count_active_hypothesis_nodes(sol));
+    EXPECT_EQ(1, count_active_unification_nodes(sol));
+
+    EXPECT_EQ(4, graph->edges().size());
+    EXPECT_EQ(2, count_chaining_edges(graph));
+    EXPECT_EQ(2, count_unifying_edges(graph));
+    
+    EXPECT_EQ(2, count_active_edges(sol));
+    EXPECT_EQ(1, count_active_chaining_edges(sol));
+    EXPECT_EQ(1, count_active_unifying_edges(sol));
+
+    EXPECT_TRUE(exists_in("dog-n/1", sol));
+}
+
+
+TEST_F(PhillipTest, Costed01)
+{
+    prepare_compile("basic", "null");
     insert_implications(
         "(=> (^ (kill-v *e1) (nsubj *e1 u) (dobj *e1 x))"
         "    (^ (die-v *e2) (nsubj *e2 x)))"
@@ -426,86 +448,38 @@ TEST_F(PhillipTest, Costed)
         "(unipp (dobj * .))");
 
     set_param("cost_provider", "basic(10.0,-50.0,4.0)");
-    setup_phillip("a*", "costed", "gurobi");
+    prepare_infer("a*", "costed", "gurobi");
     ASSERT_TRUE(check_validity());
 
     infer(make_input(
         "Test1",
         "(^ (hate-v E1) (nsubj E1 John) (dobj E1 Tom)"
         "   (die-v E2) (nsubj E2 Tom))"));
+    write("log/costed.01");
 
     const pg::proof_graph_t *graph = get_latent_hypotheses_set();
     const ilp::ilp_problem_t *prob = get_ilp_problem();
     const ilp::ilp_solution_t &sol = get_solutions().front();
     
-    ASSERT_EQ(13, graph->nodes().size());
     ASSERT_EQ(ilp::SOLUTION_OPTIMAL, sol.type());
 
-#define EXPECT_EQ_LIT(idx, lit) EXPECT_EQ(lit, graph->node(idx).literal())
-#define EXPECT_EQ_DEPTH(idx, dep) EXPECT_EQ(dep, graph->node(idx).depth())
-#define EXPECT_NODE_ACTIVE(idx) \
-    EXPECT_TRUE(sol.variable_is_active(prob->find_variable_with_node(idx)))
-#define EXPECT_EDGE_ACTIVE(idx) \
-    EXPECT_TRUE(sol.variable_is_active(prob->find_variable_with_edge(idx)))
+    EXPECT_EQ(13, graph->nodes().size());
+    EXPECT_EQ(5, count_observation_nodes(graph));
+    EXPECT_EQ(6, count_hypothesis_nodes(graph));
+    EXPECT_EQ(2, count_unification_nodes(graph));
+
+    EXPECT_EQ(13, count_active_nodes(sol));
+    EXPECT_EQ(5, count_active_observation_nodes(sol));
+    EXPECT_EQ(6, count_active_hypothesis_nodes(sol));
+    EXPECT_EQ(2, count_active_unification_nodes(sol));
+
+    EXPECT_EQ(5, graph->edges().size());
+    EXPECT_EQ(2, count_chaining_edges(graph));
+    EXPECT_EQ(3, count_unifying_edges(graph));
     
-    EXPECT_EQ_LIT(0, literal_t("hate-v", {"E1"}));
-    EXPECT_EQ_LIT(1, literal_t("nsubj", {"E1", "John"}));
-    EXPECT_EQ_LIT(2, literal_t("dobj", {"E1", "Tom"}));
-    EXPECT_EQ_LIT(3, literal_t("die-v", {"E2"}));
-    EXPECT_EQ_LIT(4, literal_t("nsubj", {"E2", "Tom"}));
-    EXPECT_EQ_LIT(5, literal_t("kill-v", {"_u1"}));
-    EXPECT_EQ_LIT(6, literal_t("nsubj", {"_u1", "_u2"}));
-    EXPECT_EQ_LIT(7, literal_t("dobj", {"_u1", "Tom"}));
-    EXPECT_EQ_LIT(8, literal_t("hate-v", {"_u3"}));
-    EXPECT_EQ_LIT(9, literal_t("nsubj", {"_u3", "_u2"}));
-    EXPECT_EQ_LIT(10, literal_t("dobj", {"_u3", "Tom"}));
-    EXPECT_EQ_LIT(11, literal_t("=", {"E1", "_u3"}));
-    EXPECT_EQ_LIT(12, literal_t("=", {"John", "_u2"}));
-    
-    EXPECT_EQ_DEPTH(0, 0);
-    EXPECT_EQ_DEPTH(1, 0);
-    EXPECT_EQ_DEPTH(2, 0);
-    EXPECT_EQ_DEPTH(3, 0);
-    EXPECT_EQ_DEPTH(4, 0);
-    EXPECT_EQ_DEPTH(5, 1);
-    EXPECT_EQ_DEPTH(6, 1);
-    EXPECT_EQ_DEPTH(7, 1);
-    EXPECT_EQ_DEPTH(8, 2);
-    EXPECT_EQ_DEPTH(9, 2);
-    EXPECT_EQ_DEPTH(10, 2);
-    EXPECT_EQ_DEPTH(11, -1);
-    EXPECT_EQ_DEPTH(12, -1);
-
-    EXPECT_NODE_ACTIVE(0);
-    EXPECT_NODE_ACTIVE(1);
-    EXPECT_NODE_ACTIVE(2);
-    EXPECT_NODE_ACTIVE(3);
-    EXPECT_NODE_ACTIVE(4);
-    EXPECT_NODE_ACTIVE(5);
-    EXPECT_NODE_ACTIVE(6);
-    EXPECT_NODE_ACTIVE(7);
-    EXPECT_NODE_ACTIVE(8);
-    EXPECT_NODE_ACTIVE(9);
-    EXPECT_NODE_ACTIVE(10);
-    EXPECT_NODE_ACTIVE(11);
-    EXPECT_NODE_ACTIVE(12);
-
-    EXPECT_TRUE(graph->edge(0).is_chain_edge());
-    EXPECT_TRUE(graph->edge(1).is_chain_edge());
-    EXPECT_TRUE(graph->edge(2).is_unify_edge());
-    EXPECT_TRUE(graph->edge(3).is_unify_edge());
-    EXPECT_TRUE(graph->edge(4).is_unify_edge());
-
-    EXPECT_EDGE_ACTIVE(0);
-    EXPECT_EDGE_ACTIVE(1);
-    EXPECT_EDGE_ACTIVE(2);
-    EXPECT_EDGE_ACTIVE(3);
-    EXPECT_EDGE_ACTIVE(4);
-
-#undef EXPECT_EQ_LIT
-#undef EXPECT_EQ_DEPTH
-#undef EXPECT_NODE_ACTIVE
-#undef EXPECT_EDGE_ACTIVE
+    EXPECT_EQ(5, count_active_edges(sol));
+    EXPECT_EQ(2, count_active_chaining_edges(sol));
+    EXPECT_EQ(3, count_active_unifying_edges(sol));
 }
 
 

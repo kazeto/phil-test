@@ -11,20 +11,6 @@ namespace phtest
 using namespace phil;
 
 
-void setup_kb(
-    const std::string &filename,
-    const std::string &key_dist,
-    const std::string &key_table,
-    float max_dist)
-{
-    phillip_main_t::set_verbose(NOT_VERBOSE);
-    kb::knowledge_base_t::setup(filename, max_dist, 1, false);
-    kb::kb()->set_distance_provider(key_dist);
-    kb::kb()->set_category_table(key_table);
-    kb::kb()->prepare_compile();
-}
-
-
 int insert_implications(const std::string &str)
 {
     int n_imp(0);
@@ -33,9 +19,7 @@ int insert_implications(const std::string &str)
     lf::parse(str, &funcs);
     for (auto func : funcs)
     {
-        assert(
-            func.is_operator(lf::OPR_IMPLICATION) or
-            func.is_operator(lf::OPR_PARAPHRASE));
+        assert(func.is_operator(lf::OPR_IMPLICATION));
 
         std::string name = util::format("imp_%d", n_imp);
         kb::kb()->insert_implication(func, name);
@@ -99,6 +83,176 @@ lf::input_t make_input(const std::string &name, const std::string &input_str)
     }
             
     return input;
+}
+
+
+int count_observation_nodes(const pg::proof_graph_t *graph)
+{
+    int out(0);
+    for (pg::node_idx_t i = 0; i < graph->nodes().size(); ++i)
+        if (graph->node(i).type() == pg::NODE_OBSERVABLE)
+            ++out;
+    return out;
+}
+
+
+int count_hypothesis_nodes(const pg::proof_graph_t *graph)
+{
+    int out(0);
+    for (pg::node_idx_t i = 0; i < graph->nodes().size(); ++i)
+        if (graph->node(i).type() == pg::NODE_HYPOTHESIS)
+            if (not graph->node(i).literal().is_equality())
+                ++out;
+    return out;
+}
+
+
+int count_unification_nodes(const pg::proof_graph_t *graph)
+{
+    int out(0);
+    for (pg::node_idx_t i = 0; i < graph->nodes().size(); ++i)
+        if (graph->node(i).type() == pg::NODE_HYPOTHESIS)
+            if (graph->node(i).is_equality_node())
+                ++out;
+    return out;
+}
+
+
+int count_active_nodes(const ilp::ilp_solution_t &sol)
+{
+    int out(0);
+    const pg::proof_graph_t *graph = sol.proof_graph();
+    ilp::basic_solution_interpreter_t interpreter;
+    
+    for (pg::node_idx_t i = 0; i < graph->nodes().size(); ++i)
+        if (interpreter.node_is_active(sol, i))
+            ++out;
+
+    return out;
+}
+
+
+int count_active_observation_nodes(const ilp::ilp_solution_t &sol)
+{
+    int out(0);
+    const pg::proof_graph_t *graph = sol.proof_graph();
+    ilp::basic_solution_interpreter_t interpreter;
+    
+    for (pg::node_idx_t i = 0; i < graph->nodes().size(); ++i)
+        if (graph->node(i).type() == pg::NODE_OBSERVABLE)
+            if (interpreter.node_is_active(sol, i))
+                ++out;
+
+    return out;
+}
+
+
+int count_active_hypothesis_nodes(const ilp::ilp_solution_t &sol)
+{
+    int out(0);
+    const pg::proof_graph_t *graph = sol.proof_graph();
+    ilp::basic_solution_interpreter_t interpreter;
+    
+    for (pg::node_idx_t i = 0; i < graph->nodes().size(); ++i)
+        if (graph->node(i).type() == pg::NODE_HYPOTHESIS)
+            if (not graph->node(i).is_equality_node())
+                if (interpreter.node_is_active(sol, i))
+                    ++out;
+
+    return out;
+}
+
+
+int count_active_unification_nodes(const ilp::ilp_solution_t &sol)
+{
+    int out(0);
+    const pg::proof_graph_t *graph = sol.proof_graph();
+    ilp::basic_solution_interpreter_t interpreter;
+    
+    for (pg::node_idx_t i = 0; i < graph->nodes().size(); ++i)
+        if (graph->node(i).type() == pg::NODE_HYPOTHESIS)
+            if (graph->node(i).is_equality_node())
+                if (interpreter.node_is_active(sol, i))
+                    ++out;
+
+    return out;
+}
+
+
+int count_chaining_edges(const pg::proof_graph_t *graph)
+{
+    int out(0);
+    for (pg::edge_idx_t i = 0; i < graph->edges().size(); ++i)
+        if (graph->edge(i).is_chain_edge())
+            ++out;
+    return out;
+}
+
+
+int count_unifying_edges(const pg::proof_graph_t *graph)
+{
+    int out(0);
+    for (pg::edge_idx_t i = 0; i < graph->edges().size(); ++i)
+        if (graph->edge(i).is_unify_edge())
+            ++out;
+    return out;
+}
+
+
+int count_active_edges(const ilp::ilp_solution_t &sol)
+{
+    int out(0);
+    const pg::proof_graph_t *graph = sol.proof_graph();
+    ilp::basic_solution_interpreter_t interpreter;
+    
+    for (pg::edge_idx_t i = 0; i < graph->edges().size(); ++i)
+        if (interpreter.edge_is_active(sol, i))
+            ++out;
+
+    return out;
+}
+
+
+int count_active_chaining_edges(const ilp::ilp_solution_t &sol)
+{
+    int out(0);
+    const pg::proof_graph_t *graph = sol.proof_graph();
+    ilp::basic_solution_interpreter_t interpreter;
+    
+    for (pg::edge_idx_t i = 0; i < graph->edges().size(); ++i)
+        if (graph->edge(i).is_chain_edge())
+            if (interpreter.edge_is_active(sol, i))
+                ++out;
+
+    return out;
+}
+
+
+int count_active_unifying_edges(const ilp::ilp_solution_t &sol)
+{
+    int out(0);
+    const pg::proof_graph_t *graph = sol.proof_graph();
+    ilp::basic_solution_interpreter_t interpreter;
+    
+    for (pg::edge_idx_t i = 0; i < graph->edges().size(); ++i)
+        if (graph->edge(i).is_unify_edge())
+            if (interpreter.edge_is_active(sol, i))
+                ++out;
+
+    return out;
+}
+
+
+bool exists_in(arity_t arity, const ilp::ilp_solution_t &sol)
+{
+    ilp::basic_solution_interpreter_t interpreter;
+    
+    for (auto n : sol.proof_graph()->nodes())
+        if (n.arity() == arity)
+            if (interpreter.node_is_active(sol, n.index()))
+                return true;
+
+    return false;
 }
 
 
