@@ -343,6 +343,61 @@ TEST_F(PhillipTest, AStarBasedEnumerator01)
 }
 
 
+TEST_F(PhillipTest, AStarBasedEnumerator02)
+{
+    prepare_compile("basic", "null");
+    insert_implications(
+        "(=> (criminal-j e1 x) (arrest-v e2 y x))"
+        "(=> (kill-v e1 x y) (criminal-j e2 x))"
+        "(=> (rob-v e1 x y) (criminal-j e2 x))"
+        "(=> (murder-v e x y) (kill-v e x y))");
+    
+    lf::input_t input = make_input(
+        "Test1",
+        "(^ (arrest-v E1 Police man) (murder-v E2 John Tom) (rob-v E3 Bob Shop))");
+
+    {
+        set_param("max_distance", "3.0");
+        prepare_infer("a*", "null", "null");
+        ASSERT_TRUE(check_validity());
+    
+        infer(input);
+        write("log/astar.02a", os::lhs);
+
+        const pg::proof_graph_t *graph = get_latent_hypotheses_set();    
+
+        ASSERT_EQ(13, graph->nodes().size());
+        EXPECT_EQ(3, count_observation_nodes(graph));
+        EXPECT_EQ(4, count_hypothesis_nodes(graph));
+        EXPECT_EQ(6, count_unification_nodes(graph));
+        
+        ASSERT_EQ(6, graph->edges().size());
+        EXPECT_EQ(4, count_chaining_edges(graph));
+        EXPECT_EQ(2, count_unifying_edges(graph));
+    }
+
+    {
+        set_param("max_distance", "2.0");
+        prepare_infer("a*", "null", "null");
+        ASSERT_TRUE(check_validity());
+
+        infer(input);
+        write("log/astar.02b", os::lhs);
+
+        const pg::proof_graph_t *graph = get_latent_hypotheses_set();    
+
+        ASSERT_EQ(8, graph->nodes().size());
+        EXPECT_EQ(3, count_observation_nodes(graph));
+        EXPECT_EQ(2, count_hypothesis_nodes(graph));
+        EXPECT_EQ(3, count_unification_nodes(graph));
+    
+        ASSERT_EQ(3, graph->edges().size());
+        EXPECT_EQ(2, count_chaining_edges(graph));
+        EXPECT_EQ(1, count_unifying_edges(graph));
+    }
+}
+
+
 TEST_F(PhillipTest, Weighted01)
 {
     prepare_compile("basic", "null");
@@ -481,6 +536,74 @@ TEST_F(PhillipTest, Costed01)
     EXPECT_EQ(2, count_active_chaining_edges(sol));
     EXPECT_EQ(3, count_active_unifying_edges(sol));
 }
+
+
+TEST_F(PhillipTest, KBest01)
+{
+    prepare_compile("basic", "null");
+    insert_implications(
+        "(=> (dog-n x :1.3) (animal-n x))"
+        "(=> (cat-n x :1.4) (animal-n x))");
+    insert_inconsistencies(
+        "(xor (dog-n x) (cat-n x))");
+
+    set_param("max_sols_num", "5");
+    set_param("sols_threshold", "5.0");
+    set_param("sols_margin", "1");
+    prepare_infer("a*", "weighted", "gurobi_kbest");
+    ASSERT_TRUE(check_validity());
+
+    infer(make_input(
+        "Test2",
+        "(^ (animal-n a :10) (cat-n c :20) (dog-n d :20))"));
+    write("log/kbest.01");
+
+    const pg::proof_graph_t *graph = get_latent_hypotheses_set();
+    const ilp::ilp_problem_t *prob = get_ilp_problem();
+    const std::vector<ilp::ilp_solution_t> &sols = get_solutions();
+
+    ASSERT_EQ(2, sols.size());
+    ASSERT_EQ(ilp::SOLUTION_OPTIMAL, sols.at(0).type());
+    ASSERT_EQ(ilp::SOLUTION_OPTIMAL, sols.at(1).type());
+    
+    EXPECT_EQ(8, graph->nodes().size());
+    EXPECT_EQ(3, count_observation_nodes(graph));
+    EXPECT_EQ(2, count_hypothesis_nodes(graph));
+    EXPECT_EQ(3, count_unification_nodes(graph));
+
+    EXPECT_EQ(4, graph->edges().size());
+    EXPECT_EQ(2, count_chaining_edges(graph));
+    EXPECT_EQ(2, count_unifying_edges(graph));
+
+    // --- TESTING THE 1ST SOLUTION
+    
+    EXPECT_EQ(5, count_active_nodes(sols.at(0)));
+    EXPECT_EQ(3, count_active_observation_nodes(sols.at(0)));
+    EXPECT_EQ(1, count_active_hypothesis_nodes(sols.at(0)));
+    EXPECT_EQ(1, count_active_unification_nodes(sols.at(0)));
+    
+    EXPECT_EQ(2, count_active_edges(sols.at(0)));
+    EXPECT_EQ(1, count_active_chaining_edges(sols.at(0)));
+    EXPECT_EQ(1, count_active_unifying_edges(sols.at(0)));
+    
+    EXPECT_TRUE(exists_in("dog-n/1", sols.at(0)));
+    EXPECT_EQ(33.0, sols.at(0).value_of_objective_function());
+
+    // --- TESTING THE 2ND SOLUTION
+
+    EXPECT_EQ(5, count_active_nodes(sols.at(1)));
+    EXPECT_EQ(3, count_active_observation_nodes(sols.at(1)));
+    EXPECT_EQ(1, count_active_hypothesis_nodes(sols.at(1)));
+    EXPECT_EQ(1, count_active_unification_nodes(sols.at(1)));
+    
+    EXPECT_EQ(2, count_active_edges(sols.at(1)));
+    EXPECT_EQ(1, count_active_chaining_edges(sols.at(1)));
+    EXPECT_EQ(1, count_active_unifying_edges(sols.at(1)));
+    
+    EXPECT_TRUE(exists_in("cat-n/1", sols.at(1)));
+    EXPECT_EQ(34.0, sols.at(1).value_of_objective_function());
+}
+
 
 
 }
