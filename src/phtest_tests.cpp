@@ -1,13 +1,10 @@
 #include <list>
-#include "./test.h"
+#include "./phtest_util.h"
 
 namespace phtest
 {
 
 using namespace phil;
-
-
-const std::string KB_PATH = "compiled/kb";
 
 
 TEST(Preliminary, Version)
@@ -184,91 +181,6 @@ TEST(CompileKBTest, BasicCategoryTable)
     EXPECT_EQ(1.0f, tab->get("cat-n/1", "animal-n/1"));
     EXPECT_EQ(3.0f, tab->get("cat-n/1", "poodle-n/1"));
 }
-
-
-namespace os
-{
-const unsigned char lhs = 0x01;
-const unsigned char ilp = 0x02;
-const unsigned char sol = 0x04;
-const unsigned char out = 0x08;
-}
-
-
-/** A fixture class for testing inference with Phillip. */
-class PhillipTest :
-        public phillip_main_t,
-        public ::testing::Test
-{
-protected:
-    virtual void SetUp() override
-        {
-            string_hash_t::reset_unknown_hash_count();
-            set_verbose(NOT_VERBOSE);
-            set_param("max_distance", "4.0");
-        }
-
-    /** Prepares for compiling KB. */
-    void prepare_compile(
-        const std::string &key_dist,
-        const std::string &key_tab)
-        {
-            set_param("distance_provider", key_dist);
-            set_param("category_table", key_tab);
-            set_param("kb_max_distance", "4.0");
-            kb::knowledge_base_t::initialize(KB_PATH, this);
-            kb::kb()->prepare_compile();
-        }
-
-    void prepare_infer(
-        const std::string &key_lhs,
-        const std::string &key_ilp,
-        const std::string &key_sol)
-        {
-            set_lhs_enumerator(
-                bin::lhs_enumerator_library_t::instance()
-                ->generate(key_lhs, this));
-            set_ilp_convertor(
-                bin::ilp_converter_library_t::instance()
-                ->generate(key_ilp, this));
-            set_ilp_solver(
-                bin::ilp_solver_library_t::instance()
-                ->generate(key_sol, this));
-            kb::kb()->prepare_query();
-        }
-
-    void write(const std::string &prefix, unsigned char flags = 0x0f)
-        {
-            if (flags & os::lhs)
-            {
-                std::ofstream fo(prefix + ".lhs.xml");
-                write_header(&fo);
-                get_latent_hypotheses_set()->print(&fo);
-                write_footer(&fo);
-            }
-            if (flags & os::ilp)
-            {
-                std::ofstream fo(prefix + ".ilp.xml");
-                write_header(&fo);
-                get_ilp_problem()->print(&fo);
-                write_footer(&fo);
-            }
-            if (flags & os::sol)
-            {
-                std::ofstream fo(prefix + ".sol.xml");
-                write_header(&fo);
-                get_solutions().front().print(&fo);
-                write_footer(&fo);
-            }
-            if (flags & os::out)
-            {
-                std::ofstream fo(prefix + ".out.xml");
-                write_header(&fo);
-                get_solutions().front().print_graph(&fo);
-                write_footer(&fo);
-            }
-        }
-};
 
 
 TEST_F(PhillipTest, DepthBasedEnumerator01)
@@ -602,6 +514,53 @@ TEST_F(PhillipTest, KBest01)
     
     EXPECT_TRUE(exists_in("cat-n/1", sols.at(1)));
     EXPECT_EQ(34.0, sols.at(1).value_of_objective_function());
+}
+
+
+TEST_F(PhillipTest, Train01)
+{
+    prepare_compile("basic", "null");
+    insert_implications(
+        "(=> (dog x) (animal x))"
+        "(=> (cat x) (animal x))");
+
+    set_param("cost-provider", "basic(10.0,-50.0,4.0)");
+    set_param("optimizer", "sgd(exponential(0.5,0.95))");
+    set_param("loss", "square");
+    set_param("activation", "sigmoid(1.0,1.0)");
+    
+    prepare_infer("a*", "parameterized", "gurobi");
+    ASSERT_TRUE(check_validity());
+
+    infer(make_input(
+        "Test1",
+        "(req (= x T) (y T))"
+        "(^ (dog x) (cat y) (animal T))"));
+    write("log/costed.01");
+
+    const pg::proof_graph_t *graph = get_latent_hypotheses_set();
+    const ilp::ilp_problem_t *prob = get_ilp_problem();
+    const ilp::ilp_solution_t &sol = get_solutions().front();
+    
+    ASSERT_EQ(ilp::SOLUTION_OPTIMAL, sol.type());
+
+    EXPECT_EQ(13, graph->nodes().size());
+    EXPECT_EQ(5, count_observation_nodes(graph));
+    EXPECT_EQ(6, count_hypothesis_nodes(graph));
+    EXPECT_EQ(2, count_unification_nodes(graph));
+
+    EXPECT_EQ(13, count_active_nodes(sol));
+    EXPECT_EQ(5, count_active_observation_nodes(sol));
+    EXPECT_EQ(6, count_active_hypothesis_nodes(sol));
+    EXPECT_EQ(2, count_active_unification_nodes(sol));
+
+    EXPECT_EQ(5, graph->edges().size());
+    EXPECT_EQ(2, count_chaining_edges(graph));
+    EXPECT_EQ(3, count_unifying_edges(graph));
+    
+    EXPECT_EQ(5, count_active_edges(sol));
+    EXPECT_EQ(2, count_active_chaining_edges(sol));
+    EXPECT_EQ(3, count_active_unifying_edges(sol));
 }
 
 
